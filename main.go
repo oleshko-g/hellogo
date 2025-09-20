@@ -3,70 +3,77 @@ package main
 import (
 	"errors"
 	"flag"
-	"fmt"
-	"strconv"
-	"strings"
+	"os"
 )
 
-type NetAddress struct {
-	Host string
-	Port int
-}
+func parseArgs(args []string) (Config, error) {
+	fs := flag.NewFlagSet("report", flag.ExitOnError)
+	fs.SetOutput(os.Stderr)
+	fs.String("input", "", "Path to the input file. Must be a non-empty string.")
+	fs.Int("limit", 100, "Default: `100`. Must be between 1 and 1000 (inclusive)")
+	verboseP := fs.Bool("verbose", false, "Default: `false`.")
+	fs.String("format", "text", "Default: `text`. Allowed values: `text` or `json`.")
 
-func (na *NetAddress) String() string {
-	return fmt.Sprintf("%s:%s", na.Host, strconv.Itoa(na.Port))
-}
-
-func (na *NetAddress) Set(flagValue string) error {
-	if flagValue == "" {
-		return errors.New("empty value")
+	err := fs.Parse(args)
+	if err != nil {
+		return Config{}, err
 	}
 
-	splitFlagValue := strings.Split(strings.TrimSpace(flagValue), ":")
-	if len(splitFlagValue) == 2 {
-
-		host, err := parseHost(splitFlagValue[0])
-		if err != nil {
-			return err
-		}
-		na.Host = host
-
-		port, err := parsePort(splitFlagValue[1])
-		if err != nil {
-			return err
-		}
-		na.Port = port
+	var cfg Config
+	if err = cfg.setInput(fs); err != nil {
+		return Config{}, err
+	}
+	if err = cfg.setLimit(fs); err != nil {
+		return Config{}, err
 	}
 
+	cfg.Verbose = *verboseP
+
+	if err = cfg.setFormat(fs); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+type Config struct {
+	Input   string
+	Limit   int
+	Verbose bool
+	Format  string
+}
+
+func (c *Config) setInput(fs *flag.FlagSet) error {
+	input, ok := fs.Lookup("input").Value.(flag.Getter).Get().(string)
+	if input == "" || !ok {
+		return errors.New("missing -input")
+	}
+
+	c.Input = input
 	return nil
 }
 
-func parseHost(hostStringValue string) (host string, err error) {
-	if hostStringValue == "" {
-		return "", errors.New("empty Host")
+func (c *Config) setLimit(fs *flag.FlagSet) error {
+	value, ok := fs.Lookup("limit").Value.(flag.Getter)
+	if !ok {
+		return errors.New("invalid -limit: must be between 1 and 1000")
 	}
-	// TODO: white space check
-	return hostStringValue, nil
+	if limit, ok := value.Get().(int); ok {
+		if !ok || (limit < 1 || limit > 1000) {
+			return errors.New("invalid -limit: must be between 1 and 1000")
+		}
+		c.Limit = limit
+	}
+	return nil
 }
 
-func parsePort(portStringValue string) (port int, err error) {
-	if portStringValue == "" {
-		return 0, errors.New("empty Port")
+func (c *Config) setFormat(fs *flag.FlagSet) error {
+	if value, ok := fs.Lookup("format").Value.(flag.Getter); ok {
+		if format, ok := value.Get().(string); ok {
+			if format != "text" && format != "json" {
+				return errors.New("invalid -format: must be 'text' or 'json'")
+			}
+			c.Format = format
+		}
 	}
-	// TODO: white space check
-	portIntValue, err := strconv.Atoi(portStringValue)
-	if err != nil {
-		return 0, errors.New("port is not an int")
-	}
-	return portIntValue, nil
-}
-
-func main() {
-	addr := new(NetAddress)
-	_ = flag.Value(addr)
-	// проверка реализации
-	flag.Var(addr, "addr", "Net address host:port")
-	flag.Parse()
-	fmt.Println(addr.Host)
-	fmt.Println(addr.Port)
+	return nil
 }
