@@ -1,4 +1,4 @@
-package main
+package main // revive:disable-line:package-comments
 
 import (
 	"database/sql"
