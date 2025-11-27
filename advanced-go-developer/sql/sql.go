@@ -22,6 +22,7 @@ type (
 
 const (
 	videos           = "videos.db"
+	id               = "0EbFotkXOiA"
 	mostWatchedVideo = "SELECT title, channel_title, views from videos WHERE views = (SELECT MAX(views) from videos);"
 )
 
@@ -32,7 +33,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	result, err := db.selectMostWatchedVideo()
+	result, err := db.getDesc(id)
 	if err != nil {
 		slog.Error(err.Error())
 	}
@@ -77,4 +78,19 @@ func (db *ogdb) selectMostWatchedVideo() (string, error) {
 	}
 
 	return fmt.Sprintf("%+v", r), nil
+}
+
+func (db *ogdb) getDesc(id string) (string, error) {
+	row := db.QueryRow("SELECT description FROM videos WHERE video_id = ?", id)
+
+	var desc sql.NullString
+
+	err := row.Scan(&desc)
+	if err != nil {
+		return "", err
+	}
+	if desc.Valid {
+		return desc.String, nil
+	}
+	return "-----", nil
 }
