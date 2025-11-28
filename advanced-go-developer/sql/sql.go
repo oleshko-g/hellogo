@@ -14,6 +14,7 @@ type (
 		queries
 	}
 	queries interface {
+		Query(q string, args ...any) (*sql.Rows, error)
 		QueryRow(q string, args ...any) *sql.Row
 		Stats() sql.DBStats
 		Close() error
@@ -33,7 +34,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	result, err := db.getDesc(id)
+	result, err := db.queryVideos(limit)
 	if err != nil {
 		slog.Error(err.Error())
 	}
@@ -94,3 +95,43 @@ func (db *ogdb) getDesc(id string) (string, error) {
 	}
 	return "-----", nil
 }
+
+func (db *ogdb) queryVideos(limit int) ([]Video, error) {
+	videos := make([]Video, 0, limit)
+
+	rows, err := db.Query("SELECT video_id, title, views from videos ORDER BY views LIMIT ?", limit)
+	if err != nil {
+		return nil, err
+	}
+
+	// обязательно закрываем перед возвратом функции
+	defer rows.Close()
+
+	// пробегаем по всем записям
+	for rows.Next() {
+		var v Video
+		err = rows.Scan(&v.ID, &v.Title, &v.Views)
+		if err != nil {
+			return nil, err
+		}
+
+		videos = append(videos, v)
+	}
+
+	// проверяем на ошибки
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+	return videos, nil
+}
+
+// Video структура видео.
+type Video struct {
+	ID    string
+	Title string
+	Views int64
+}
+
+// limit — максимальное количество записей.
+const limit = 20
