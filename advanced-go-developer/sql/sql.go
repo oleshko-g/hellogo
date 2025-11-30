@@ -3,10 +3,13 @@ package main // revive:disable-line:package-comments
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,8 +21,9 @@ type (
 		queries
 	}
 	queries interface {
-		Query(q string, args ...any) (*sql.Rows, error)
-		QueryRow(q string, args ...any) *sql.Row
+		Exec(q string, args ...interface{}) (sql.Result, error)
+		Query(q string, args ...interface{}) (*sql.Rows, error)
+		QueryRow(q string, args ...interface{}) *sql.Row
 		Stats() sql.DBStats
 		Close() error
 	}
@@ -29,6 +33,7 @@ const (
 	videos           = "videos.db"
 	id               = "0EbFotkXOiA"
 	mostWatchedVideo = "SELECT title, channel_title, views from videos WHERE views = (SELECT MAX(views) from videos);"
+	_CSVFile         = "USvideos.csv"
 )
 
 func main() {
@@ -38,12 +43,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	list, err := db.trendingCount()
+	vv, err := readVideoCSV(_CSVFile, 2)
 	if err != nil {
-		panic(err)
+		slog.Error(err.Error())
+		os.Exit(1)
 	}
-	for _, v := range list {
-		fmt.Println(v.T.Format(trendDateLayout), v.Count)
+
+	err = db.insertVideosShort(vv)
+	if err != nil {
+		slog.Error(err.Error())
+		os.Exit(1)
 	}
 }
 
@@ -134,10 +143,11 @@ func (db *ogdb) queryVideos(limit int) ([]Video, error) {
 
 // Video структура видео.
 type Video struct {
-	ID    string
-	Title string
-	Views int64
-	Tags  Tags
+	ID          string
+	Title       string
+	PublishTime time.Time // publish_time
+	Tags        Tags
+	Views       int64
 }
 
 // limit — максимальное количество записей.
@@ -172,11 +182,15 @@ func (db *ogdb) queryTagVideos(limit int) ([]Video, error) {
 
 type Tags []string
 
-func (tt Tags) Value() (driver.Value, error) {
+func (tt Tags) String() string {
 	if len(tt) == 0 {
-		return "", nil
+		return ""
 	}
-	return strings.Join(tt, "|"), nil
+	return strings.Join(tt, "|")
+}
+
+func (tt Tags) Value() (driver.Value, error) {
+	return tt.String(), nil
 }
 
 func (tt *Tags) Scan(src interface{}) error {
@@ -273,3 +287,116 @@ func (db *ogdb) trendingCount() ([]trend, error) {
 
 // YY.DD.MM
 const trendDateLayout = "06.02.01"
+
+func readVideoCSV(csvFilePath string, readFromLine int) ([]Video, error) {
+	csvFile, err := os.Open(csvFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	r := csv.NewReader(csvFile)
+	r.FieldsPerRecord = 5
+
+	var vv []Video
+	for i := 1; ; i++ {
+		record, err := r.Read()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				err = nil
+				break
+			}
+			return nil, err
+		}
+
+		if i < readFromLine {
+			continue
+		}
+
+		var v Video
+		err = parseCSVRecord(record,
+			&v.ID,
+			&v.Title,
+			&v.PublishTime,
+			&v.Tags,
+			&v.Views,
+		)
+		if err != nil {
+			return nil, err
+		}
+		vv = append(vv, v)
+	}
+
+	return vv, nil
+}
+
+func parseCSVRecord(record []string, dsts ...interface{}) error {
+	if record == nil {
+		return errors.New("error record is nil")
+	}
+
+	if len(record) == 0 {
+		return errors.New("error record has zero length")
+	}
+
+	if dsts == nil {
+		return errors.New("error dsts is nil")
+	}
+
+	if len(dsts) == 0 {
+		return errors.New("error dsts has zero length")
+	}
+
+	if len(record) != len(dsts) {
+		return errors.New("error parsing csv record. record's field number doesn't match the number of dsts")
+	}
+
+	for i, r := range record {
+		switch v := dsts[i].(type) {
+		case *string:
+			*v = r
+		case *time.Time:
+			tv, err := time.Parse(time.RFC3339, r)
+			if err != nil {
+				return err
+			}
+			*v = tv
+		case *Tags:
+			*v = strings.Split(r, "|")
+		case *int64:
+			iv, err := strconv.Atoi(r)
+			if err != nil {
+				return err
+			}
+			*v = int64(iv)
+		default:
+			return errors.New("error parsing csv record. unsupported dst")
+		}
+	}
+
+	return nil
+}
+
+func (db *ogdb) insertVideosShort(vv []Video) error {
+	if db == nil {
+		return errors.New("error db is nil")
+	}
+
+	if vv == nil {
+		return errors.New("error vv is nil")
+	}
+
+	q := `INSERT INTO
+					videos_short (video_id, title, publish_time, tags, views)
+				VALUES
+					($1, $2, $3, $4, $5);
+				`
+
+	for _, v := range vv {
+		_, err := db.Exec(q, v.ID, v.Title, v.PublishTime, v.Tags, v.Views)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
