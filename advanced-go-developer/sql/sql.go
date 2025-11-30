@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -37,18 +38,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	list, err := db.queryTagVideos(limit)
+	list, err := db.trendingCount()
 	if err != nil {
 		panic(err)
 	}
-	// для теста проверим, какие строки содержит v.Tags
-	// выведем по 4 первых тега
 	for _, v := range list {
-		length := 4
-		if len(v.Tags) < length {
-			length = len(v.Tags)
-		}
-		fmt.Println(strings.Join(v.Tags[:length], " # "))
+		fmt.Println(v.T.Format(trendDateLayout), v.Count)
 	}
 }
 
@@ -209,3 +204,72 @@ func (tt *Tags) Scan(src interface{}) error {
 
 	return nil
 }
+
+type trend struct {
+	trendDate
+	Count int
+}
+
+type trendDate struct{ T time.Time }
+
+func (t *trendDate) Scan(src interface{}) error {
+	if t == nil {
+		return errors.New("can't scan into a nil pointer")
+	}
+
+	if src == nil {
+		t.T = time.Time{}
+		return nil
+	}
+
+	v, _ := driver.String.ConvertValue(src)
+
+	sv, ok := v.(string)
+	if !ok {
+		return errors.New("sql src value is not a string")
+	}
+
+	tv, err := time.Parse(trendDateLayout, sv)
+	if err != nil {
+		return err
+	}
+
+	t.T = tv
+
+	return nil
+}
+
+func (db *ogdb) trendingCount() ([]trend, error) {
+	q := "SELECT trending_date, COUNT(DISTINCT video_id) as trending_video_count FROM videos GROUP BY trending_date;"
+	rows, err := db.Query(q)
+	if err != nil {
+		return nil, err
+	}
+
+	var tt []trend
+	for rows.Next() {
+		var t trend
+		err = rows.Scan(&t.trendDate, &t.Count)
+		if err != nil {
+			return nil, err
+		}
+		tt = append(tt, t)
+	}
+
+	defer func() {
+		err := rows.Close()
+		if err != nil {
+			slog.Error(err.Error())
+		}
+	}()
+
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	return tt, nil
+}
+
+// YY.DD.MM
+const trendDateLayout = "06.02.01"
