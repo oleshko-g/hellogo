@@ -1,43 +1,40 @@
 package main
 
 import (
-	"bytes"
-	"crypto/md5"
-	"crypto/rand"
-	"encoding/base64"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"os"
 )
+
+var secretkey = []byte("secret key")
 
 func main() {
 	var (
-		data  = make([]byte, 512) // слайс случайных байт
-		hash1 []byte              // хеш с использованием интерфейса hash.Hash
-		hash2 [md5.Size]byte      // хеш, возвращаемый функцией md5.Sum
+		data = make([]byte, 0) // декодированное сообщение с подписью
+		id   uint32            // значение идентификатора
+		err  error
+		sign []byte // HMAC-подпись от идентификатора
 	)
 
-	_, _ = rand.Read(data)
-
-	h := md5.New()
-	_, err := h.Write(data)
+	msg := "048ff4ea240a9fdeac8f1422733e9f3b8b0291c969652225e25c5f0f9f8da654139c9e21"
+	// 1) декодируйте msg в data
+	data = make([]byte, hex.DecodedLen(len(msg)))
+	_, err = hex.Decode(data, []byte(msg))
 	if err != nil {
 		slog.Error(err.Error())
-		os.Exit(1)
 	}
-	hash1 = h.Sum(hash1)
-	hash2 = md5.Sum(data)
+	id = binary.BigEndian.Uint32(data[:4])
+	// 3) вычислите HMAC-подпись sign для этих четырёх байт
+	h := hmac.New(sha256.New, secretkey)
+	h.Write(data[:4])
+	sign = h.Sum(nil)
 
-	// hash2[:] приводит массив байт к слайсу
-	if bytes.Equal(hash1, hash2[:]) {
-		fmt.Println("Всё правильно! Хеши равны")
+	if hmac.Equal(sign, data[4:]) {
+		fmt.Println("Подпись подлинная. ID:", id)
 	} else {
-		fmt.Println("Что-то пошло не так")
+		fmt.Println("Подпись неверна. Где-то ошибка")
 	}
-}
-
-func randomBase64String(l int) string {
-	b := make([]byte, l)
-	_, _ = rand.Read(b)
-	return base64.RawStdEncoding.EncodeToString(b)
 }
