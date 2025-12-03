@@ -1,40 +1,56 @@
 package main
 
 import (
-	"crypto/hmac"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"os"
 )
 
-var secretkey = []byte("secret key")
+const (
+	password = "x35k9f"
+	msg      = `0ba7cd8c624345451df4710b81d1a349ce401e61bc7eb704ca` +
+		`a84a8cde9f9959699f75d0d1075d676f1fe2eb475cf81f62ef` +
+		`f701fee6a433cfd289d231440cf549e40b6c13d8843197a95f` +
+		`8639911b7ed39a3aec4dfa9d286095c705e1a825b10a9104c6` +
+		`be55d1079e6c6167118ac91318fe`
+)
 
 func main() {
-	var (
-		data = make([]byte, 0) // декодированное сообщение с подписью
-		id   uint32            // значение идентификатора
-		err  error
-		sign []byte // HMAC-подпись от идентификатора
-	)
+	var err error
 
-	msg := "048ff4ea240a9fdeac8f1422733e9f3b8b0291c969652225e25c5f0f9f8da654139c9e21"
-	// 1) декодируйте msg в data
-	data = make([]byte, hex.DecodedLen(len(msg)))
-	_, err = hex.Decode(data, []byte(msg))
+	key := sha256.Sum256([]byte(password))
+
+	aesblock, err := aes.NewCipher(key[:])
 	if err != nil {
-		slog.Error(err.Error())
+		fatal(err)
 	}
-	id = binary.BigEndian.Uint32(data[:4])
-	// 3) вычислите HMAC-подпись sign для этих четырёх байт
-	h := hmac.New(sha256.New, secretkey)
-	h.Write(data[:4])
-	sign = h.Sum(nil)
 
-	if hmac.Equal(sign, data[4:]) {
-		fmt.Println("Подпись подлинная. ID:", id)
-	} else {
-		fmt.Println("Подпись неверна. Где-то ошибка")
+	aesgcm, err := cipher.NewGCM(aesblock)
+	if err != nil {
+		fatal(err)
 	}
+	nonce := key[len(key)-aesgcm.NonceSize():]
+
+	b, err := hex.DecodeString(msg)
+	if err != nil {
+		fatal(err)
+	}
+
+	b, err = aesgcm.Open(b[:0], nonce, b, nil)
+	if err != nil {
+		fatal(err)
+	}
+
+	decipheredMsg := string(b)
+	fmt.Println(decipheredMsg)
+
+}
+
+func fatal(err error) {
+	slog.Error(err.Error())
+	os.Exit(1)
 }
