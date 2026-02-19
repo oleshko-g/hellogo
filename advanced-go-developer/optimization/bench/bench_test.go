@@ -7,50 +7,54 @@ import (
 func BenchmarkLoadBalancers(b *testing.B) {
 	n := 50
 	reqsN := 1000
-	var resultVacuum *Connection
 	conns := makeConnections(n)
+
 	b.Run("chan", func(b *testing.B) {
-		balancerChan := NewLoadBalancerChan(conns)
-		balancerChan.Init()
-		defer balancerChan.Close()
-		for j := 0; j < b.N; j++ {
+		balancer := NewLoadBalancerChan(conns)
+		balancer.Init()
+		defer balancer.Close()
+
+		for b.Loop() {
+
 			for i := 0; i < reqsN; i++ {
-				c := balancerChan.NextConn()
-				resultVacuum = c
+				c := balancer.NextConn()
+				_ = c
 			}
+
 		}
 	})
 
 	b.Run("atomic", func(b *testing.B) {
+		balancer := NewLoadBalancerAtomic(conns)
+		for b.Loop() {
 
-		for j := 0; j < b.N; j++ {
-			balancerA := NewLoadBalancerAtomic(conns)
 			for i := 0; i < reqsN; i++ {
-				c := balancerA.NextConn()
+				c := balancer.NextConn()
 				_ = c
 			}
+
 		}
 	})
 
 	b.Run("mutex", func(b *testing.B) {
-		balancerM := NewLoadBalancerMutex(conns)
-		for j := 0; j < b.N; j++ {
+		balancer := NewLoadBalancerMutex(conns)
+
+		for b.Loop() {
 
 			for i := 0; i < reqsN; i++ {
-				c := balancerM.NextConn()
+				c := balancer.NextConn()
 				_ = c
 			}
+
 		}
 	})
-	b.StopTimer()
 
-	_ = resultVacuum
 }
 
-func makeConnections(n int) []*Connection {
-	var conns []*Connection
+func makeConnections(n int) []*Target {
+	var conns []*Target
 	for i := 0; i < n; i++ {
-		conns = append(conns, &Connection{})
+		conns = append(conns, &Target{})
 	}
 
 	return conns

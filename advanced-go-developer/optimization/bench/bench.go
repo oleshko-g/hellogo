@@ -5,20 +5,20 @@ import (
     "sync/atomic"
 )
 
-type Connection struct{}
+type Target struct{}
 
 type LoadBalancer interface {
-    NextConn() *Connection
+    NextTarget() *Target
 }
 
 type LoadBalancerChan struct {
-    conns []*Connection
-    ch    chan *Connection
+    targets []*Target
+    ch    chan *Target
     stop  chan struct{}
 }
 
-func NewLoadBalancerChan(conns []*Connection) *LoadBalancerChan {
-    return &LoadBalancerChan{conns: conns, ch: make(chan *Connection), stop: make(chan struct{})}
+func NewLoadBalancerChan(targets []*Target) *LoadBalancerChan {
+    return &LoadBalancerChan{targets: targets, ch: make(chan *Target), stop: make(chan struct{})}
 }
 
 func (b *LoadBalancerChan) Init() {
@@ -32,9 +32,9 @@ func (b *LoadBalancerChan) Close() {
 func (b *LoadBalancerChan) worker() {
     for i := 0; ; {
         select {
-        case b.ch <- b.conns[i]:
+        case b.ch <- b.targets[i]:
             i++
-            if i == len(b.conns) {
+            if i == len(b.targets) {
                 i = 0
             }
 
@@ -44,37 +44,37 @@ func (b *LoadBalancerChan) worker() {
     }
 }
 
-func (b *LoadBalancerChan) NextConn() *Connection {
+func (b *LoadBalancerChan) NextConn() *Target {
     return <-b.ch
 }
 
 type LoadBalancerAtomic struct {
-    conns   []*Connection
+    targets   []*Target
     counter uint32
 }
 
-func NewLoadBalancerAtomic(conns []*Connection) *LoadBalancerAtomic {
-    return &LoadBalancerAtomic{conns: conns}
+func NewLoadBalancerAtomic(targets []*Target) *LoadBalancerAtomic {
+    return &LoadBalancerAtomic{targets: targets}
 }
 
-func (b *LoadBalancerAtomic) NextConn() *Connection {
-    i := atomic.AddUint32(&b.counter, 1) % uint32(len(b.conns))
-    return b.conns[i]
+func (b *LoadBalancerAtomic) NextConn() *Target {
+    i := atomic.AddUint32(&b.counter, 1) % uint32(len(b.targets))
+    return b.targets[i]
 }
 
 type LoadBalancerMutex struct {
-    conns   []*Connection
+    targets   []*Target
     counter int
     mu      sync.Mutex
 }
 
-func NewLoadBalancerMutex(conns []*Connection) *LoadBalancerMutex {
-    return &LoadBalancerMutex{conns: conns}
+func NewLoadBalancerMutex(conns []*Target) *LoadBalancerMutex {
+    return &LoadBalancerMutex{targets: conns}
 }
 
-func (b *LoadBalancerMutex) NextConn() *Connection {
+func (b *LoadBalancerMutex) NextConn() *Target {
     b.mu.Lock()
     defer b.mu.Unlock()
-    b.counter = (b.counter + 1) % len(b.conns)
-    return b.conns[b.counter]
+    b.counter = (b.counter + 1) % len(b.targets)
+    return b.targets[b.counter]
 }
