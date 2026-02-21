@@ -14,7 +14,7 @@ const (
 func foo() {
 	// полезная нагрузка
 	for {
-		var s []int
+		s :=make([]int,0,maxSize)
 		for i := 0; i < maxSize; i++ {
 			s = append(s, i)
 		}
