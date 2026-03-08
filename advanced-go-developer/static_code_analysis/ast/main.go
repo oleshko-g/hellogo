@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -26,9 +27,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = ast.Print(fileSet, parsedFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	ast.Inspect(parsedFile, func(n ast.Node) bool {
+		if n != nil {
+			if v, ok := n.(*ast.CallExpr); ok {
+				for _, arg := range v.Args {
+					fmt.Println(arg)
+				}
+			}
+			return true
+		}
+		return false
+	})
 }
