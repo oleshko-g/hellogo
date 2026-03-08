@@ -1,6 +1,7 @@
 package main // revive:disable-line:package-comments
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/csv"
@@ -21,6 +22,7 @@ type (
 		queries
 	}
 	queries interface {
+		BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 		Exec(q string, args ...interface{}) (sql.Result, error)
 		Query(q string, args ...interface{}) (*sql.Rows, error)
 		QueryRow(q string, args ...interface{}) *sql.Row
@@ -30,10 +32,11 @@ type (
 )
 
 const (
-	videos           = "videos.db"
-	id               = "0EbFotkXOiA"
-	mostWatchedVideo = "SELECT title, channel_title, views from videos WHERE views = (SELECT MAX(views) from videos);"
-	_CSVFile         = "USvideos.csv"
+	videos                     = "videos.db"
+	id                         = "0EbFotkXOiA"
+	mostWatchedVideo           = "SELECT title, channel_title, views from videos WHERE views = (SELECT MAX(views) from videos);"
+	_CSVFile                   = "USvideos.csv"
+	USVideos_videos_short_full = "USvideos short full.csv"
 )
 
 func main() {
@@ -43,17 +46,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	vv, err := readVideoCSV(_CSVFile, 2)
+	vv, err := readVideoCSV(USVideos_videos_short_full, 2)
 	if err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
 
-	err = db.insertVideosShort(vv)
+	ctx := context.Background()
+	start := time.Now()
+	err = db.insertVideosShortTx(ctx, vv)
 	if err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
+	finish := time.Since(start)
+	slog.Info("Insreted videos_short in %v", "duration", finish.String())
 }
 
 func newDB() (*ogdb, error) {
@@ -396,6 +403,43 @@ func (db *ogdb) insertVideosShort(vv []Video) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (db *ogdb) insertVideosShortTx(ctx context.Context, vv []Video) error {
+	if db == nil {
+		return errors.New("error db is nil")
+	}
+
+	if ctx == nil {
+		return errors.New("ctx is nil")
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	if vv == nil {
+		return errors.New("error vv is nil")
+	}
+
+	q := `INSERT INTO
+					videos_short (video_id, title, publish_time, tags, views)
+				VALUES
+					($1, $2, $3, $4, $5);
+				`
+
+	for i, v := range vv {
+		_, err := tx.ExecContext(ctx, q, v.ID, v.Title, v.PublishTime, v.Tags, v.Views)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+		a := i
+		_ = a
 	}
 
 	return nil

@@ -5,7 +5,9 @@ import (
 	cryptoRand "crypto/rand"
 	"encoding/base64"
 	"io"
+	"log/slog"
 	"math/rand"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -17,7 +19,16 @@ func main() {
 
 	randomURL := newURLGenerator(os.Stdout, 2)
 	for range count {
-		randomURL.Write(randomURL.generate())
+		b := randomURL.generate()
+		_, err := url.Parse(string(b))
+		if err != nil {
+			randomURL.Write([]byte("\n"))
+			slog.Error(err.Error())
+			randomURL.Write([]byte("\n"))
+			randomURL.Write([]byte("\n"))
+		}
+		randomURL.Write(b)
+
 		randomURL.Write([]byte("\n"))
 	}
 }
@@ -64,8 +75,7 @@ func (ug *urlGenerator) generate() []byte {
 		ug.builder.WriteString(ug.randomURLEncodedString(ug.defaultURLPartLen))
 	}
 
-	// generate Query?
-	for flipCoin() {
+	if genrateQuery := flipCoin(); genrateQuery {
 		// generate the first Query
 		ug.builder.WriteRune('?')
 		//key

@@ -1,11 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"log"
+	"os"
 )
 
 var src = `package main
@@ -13,29 +14,31 @@ var src = `package main
 import "fmt"
 
 func main()  {
-	fmt.Println("Hello, world!")
-}
-
-`
+	fmt.Println("С 8 Марта!")
+}`
 
 func main() {
 
 	fileSet := token.NewFileSet()
 
-	parsedFile, err := parser.ParseFile(fileSet, "", src, parser.SkipObjectResolution)
+	parsedFile, err := parser.ParseFile(fileSet, "", src,
+		parser.SkipObjectResolution)
+
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	ast.Inspect(parsedFile, func(n ast.Node) bool {
 		if n != nil {
-			if v, ok := n.(*ast.CallExpr); ok {
+			switch v := n.(type) {
+			case *ast.CallExpr:
 				for _, arg := range v.Args {
-					fmt.Println(arg)
+					printer.Fprint(os.Stdout, fileSet, arg)
 				}
 			}
 			return true
 		}
+
 		return false
 	})
 }
